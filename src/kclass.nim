@@ -96,12 +96,28 @@ proc loadDatabase(dbDir: string, verbose: bool): Database =
   let dbStream = newFileStream(dbFile, fmRead)
   let numKmers = dbStream.readUint64()
   
-  var kmerTable = initTable[uint64, TaxonomyId]()
+  if verbose:
+    stderr.writeLine("Reading ", numKmers, " k-mers...")
+  
+  var kmerTable = initTable[uint64, TaxonomyId](numKmers.int)
+  var lastProgressPercent = -1
   
   for i in 0..<numKmers:
     let kmer = dbStream.readUint64()
     let taxonomyId = dbStream.readUint32()
     kmerTable[kmer] = taxonomyId
+    
+    # Progress update every 1%
+    if verbose:
+      let progress = (i * 100) div numKmers
+      if progress.int >= lastProgressPercent + 10:
+        stderr.write("\r  Progress: ", progress, "% (", i, "/", numKmers, ")")
+        stderr.flushFile()
+        lastProgressPercent = progress.int
+  
+  if verbose and numKmers > 0:
+    stderr.write("\r")
+    stderr.flushFile()
   
   dbStream.close()
   
