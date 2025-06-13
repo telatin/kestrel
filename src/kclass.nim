@@ -199,11 +199,8 @@ proc classifySequence(sequence: string, database: Database, config: ClassifyConf
     for i in 1..<tiedTaxa.len:
       bestTaxonomyId = findLCA(bestTaxonomyId, tiedTaxa[i], params.lineageGraph)
   
-  # Get taxonomy string
-  let taxonomy = if params.taxonomyLookup.hasKey(bestTaxonomyId):
-                   params.taxonomyLookup[bestTaxonomyId]
-                 else:
-                   "unclassified"
+  # Get full taxonomy lineage string
+  let taxonomy = getFullLineage(bestTaxonomyId, params.taxonomyLookup, params.lineageGraph)
   
   let confidence = bestCount.float / kmers.len.float
   
