@@ -34,12 +34,16 @@ proc loadDatabase(dbDir: string, verbose: bool): Database =
   ## Load database from files
   let paramsFile = dbDir / "params.json"
   let dbFile = dbDir / "kmers.bin"
+  let lineageFile = dbDir / "lineage.bin"
   
   if not fileExists(paramsFile):
     raise newException(IOError, "Parameters file not found: " & paramsFile)
   
   if not fileExists(dbFile):
     raise newException(IOError, "Database file not found: " & dbFile)
+    
+  if not fileExists(lineageFile):
+    raise newException(IOError, "Lineage file not found: " & lineageFile)
   
   # Load parameters
   if verbose:
@@ -60,9 +64,21 @@ proc loadDatabase(dbDir: string, verbose: bool): Database =
     taxonomyMap[taxon] = id
     taxonomyLookup[id] = taxon
   
-  # Build lineage graph (simplified - in real implementation you'd save/load this)
-  let taxonomies = toSeq(taxonomyMap.keys())
-  let (_, _, lineageGraph) = buildTaxonomyGraph(taxonomies)
+  # Load pre-built lineage graph
+  if verbose:
+    stderr.writeLine("Loading lineage graph from: ", lineageFile)
+  
+  let lineageStream = newFileStream(lineageFile, fmRead)
+  let numLineageEntries = lineageStream.readUint64()
+  
+  var lineageGraph = initTable[TaxonomyId, TaxonomyId]()
+  
+  for i in 0..<numLineageEntries:
+    let child = lineageStream.readUint32()
+    let parent = lineageStream.readUint32()
+    lineageGraph[child] = parent
+  
+  lineageStream.close()
   
   let params = DatabaseParams(
     kmerSize: kmerSize,
@@ -267,10 +283,10 @@ proc processReads(inputFiles: seq[string], database: Database, config: ClassifyC
 
 proc main(): int =
   let args = docopt("""
-  klass-classify: classify sequences using a k-mer database made with klass-build
+  kestrel-classify: classify sequences using a k-mer database made with kestrel-build
 
   Usage: 
-    klass-classify [options] -d <database> -o <output> <FASTQ_FILES>...
+    kestrel-classify [options] -d <database> -o <output> <FASTQ_FILES>...
 
   Parameters:
     -d, --db DIR            K-mer database directory

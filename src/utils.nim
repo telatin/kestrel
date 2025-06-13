@@ -26,6 +26,70 @@ type
     taxonomyLookup*: TaxonomyLookup
     lineageGraph*: TaxonomyGraph
 
+
+
+
+proc isValidTaxonomy*(taxonomy: string): bool =
+  ## Validates taxonomy strings for both GTDB and SILVA formats
+  ## GTDB format: d__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;...
+  ## SILVA format: k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;...
+  
+  if taxonomy.len == 0:
+    return false
+  
+  let levels = taxonomy.split(';')
+  if levels.len == 0:
+    return false
+  
+  # Valid prefixes for each taxonomic level
+  const validPrefixes = ["d__", "k__", "p__", "c__", "o__", "f__", "g__", "s__"]
+  
+  for i, level in levels:
+    let trimmedLevel = level.strip()
+    
+    if trimmedLevel.len == 0:
+      return false
+    
+    # Check if level starts with a valid prefix
+    var hasValidPrefix = false
+    
+    # For first level, accept both d__ (GTDB) and k__ (SILVA)
+    if i == 0:
+      if trimmedLevel.startsWith("d__") or trimmedLevel.startsWith("k__"):
+        hasValidPrefix = true
+    else:
+      # For other levels, check standard prefixes
+      let expectedPrefix = case i:
+        of 1: "p__"
+        of 2: "c__"
+        of 3: "o__"
+        of 4: "f__"
+        of 5: "g__"
+        of 6: "s__"
+        else: ""
+      
+      if expectedPrefix != "" and trimmedLevel.startsWith(expectedPrefix):
+        hasValidPrefix = true
+    
+    if not hasValidPrefix:
+      return false
+    
+    if trimmedLevel.len <= 3:
+      return false
+    
+    let taxonName = trimmedLevel[3..^1].strip()
+    
+    if taxonName.len == 0:
+      return false
+    
+    # More permissive character validation for SILVA compatibility
+    # Allow: letters, numbers, spaces, underscores, hyphens, dots, parentheses, forward slashes, colons
+    for c in taxonName:
+      if not (c.isAlphaNumeric() or c in [' ', '_', '-', '.', '(', ')', '/', ':']):
+        return false
+  
+  return true
+
 # Nucleotide encoding lookup table
 proc nucToNumber*(nuc: char): uint64 =
   case nuc.toUpperAscii()
@@ -246,3 +310,4 @@ proc getSepia*(key: uint64, table: seq[uint32], capacity: int, valueBits: uint32
     idx = ((idx.uint64 + secondHash) mod capacity.uint64).int
   
   return 0  # Not found after full probe
+
