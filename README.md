@@ -1,5 +1,7 @@
 # Kestrel: a simple K-mer Taxonomy Classifier
 
+![Kestrel Banner](docs/kestrel.svg)
+
 A fast k-mer-based taxonomic classifier written in Nim, inspired by Sepia and Kraken2. 
 Klass reads taxonomy information directly from FASTA sequence headers and uses efficient k-mer/minimizer algorithms for accurate read classification.
 
