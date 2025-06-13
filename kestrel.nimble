@@ -12,5 +12,6 @@ binDir = "bin"
 
 namedBin = {
     "kbuild": "kestrel-build",
-    "kclass": "kestrel-classify"
+    "kclass": "kestrel-classify",
+    "kombine": "kestrel-combine-seqs",
 }.toTable()
