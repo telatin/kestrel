@@ -2,7 +2,7 @@ import readfx
 import docopt, strutils
 import os, json, streams, times
 import ./utils
-import sequtils, tables, sets
+import sequtils, tables, sets, options
 
 # Helper function to format numbers with thousand separators
 proc formatWithCommas(num: int): string =
@@ -24,6 +24,7 @@ type
   BuildDbConfig = object
     kmerSize: int
     minimizerSize: int
+    kmerShape: Option[KmerShape]
     verbose: bool
     debug: bool
     outputDir: string
@@ -84,7 +85,7 @@ proc buildKmerDatabase(fastaFiles: seq[string], config: BuildDbConfig, dbParams:
         let currentTime = cpuTime()
         let progress = if sequenceCount > 0: (processedSequences * 100) div sequenceCount else: 0
         
-        if (progress >= lastProgressPercent + 10) or (currentTime - lastProgressTime) > 25.0:
+        if (progress >= lastProgressPercent + 10) or (currentTime - lastProgressTime) > 30.0:
           stderr.writeLine("  ", progress, "% - ", formatWithCommas(result.len), " unique k-mers so far (", 
                           formatWithCommas(processedSequences), "/", formatWithCommas(sequenceCount), ")")
           lastProgressTime = currentTime
@@ -99,8 +100,10 @@ proc buildKmerDatabase(fastaFiles: seq[string], config: BuildDbConfig, dbParams:
       let taxonomyId = dbParams.taxonomyMap[taxonomy]
       let sequence = record.sequence
       
-      # Extract k-mers or minimizers
-      let kmers = if config.minimizerSize > 0:
+      # Extract k-mers, minimizers, or shaped k-mers
+      let kmers = if dbParams.kmerShape.isSome:
+                    extractKmersWithShape(sequence, dbParams.kmerShape.get())
+                  elif config.minimizerSize > 0:
                     extractMinimizers(sequence, config.kmerSize, config.minimizerSize)
                   else:
                     extractKmers(sequence, config.kmerSize)
@@ -146,6 +149,14 @@ proc saveDatabase(kmerDb: Table[uint64, TaxonomyId], dbParams: DatabaseParams, c
     "num_kmers": kmerDb.len,
     "taxonomies": {}
   }
+  
+  # Add kmer shape if present
+  if dbParams.kmerShape.isSome:
+    let shape = dbParams.kmerShape.get()
+    paramsJson["kmer_shape"] = %* {
+      "pattern": shape.pattern,
+      "window_size": shape.windowSize
+    }
   
   # Add taxonomy mappings
   for taxon, id in dbParams.taxonomyMap:
@@ -198,6 +209,7 @@ proc main(): int =
   Options:
     -o, --output DB         Output database directory
     -k, --kmer-size INT     K-mer size [default: 25]
+    -s, --kmer-shape STRING K-mer shape pattern (e.g., OOOO--OOOO)
     -m, --minimizer-size INT Minimizer size (0 = no minimizers) [default: 0]
   
   Other options:
@@ -207,13 +219,31 @@ proc main(): int =
   """, version="0.1.0", argv=commandLineParams())
 
   # Parse command line arguments
-  let config = BuildDbConfig(
+  var config = BuildDbConfig(
     debug: bool(args["--debug"]),
     verbose: bool(args["--verbose"]),
     outputDir: $args["--output"],
-    kmerSize: if args["--kmer-size"]: parseInt($args["--kmer-size"]) else: 25,
-    minimizerSize: if args["--minimizer-size"]: parseInt($args["--minimizer-size"]) else: 0
+    minimizerSize: if args["--minimizer-size"]: parseInt($args["--minimizer-size"]) else: 0,
+    kmerShape: none(KmerShape)
   )
+  
+  # Handle k-mer size or shape - only one should be specified
+  let hasKmerSize = args["--kmer-size"] and $args["--kmer-size"] != "25"  # Check if user provided non-default value
+  let hasKmerShape = args["--kmer-shape"]
+  
+  if hasKmerSize and hasKmerShape:
+    stderr.writeLine("Error: Cannot specify both --kmer-size and --kmer-shape")
+    return 1
+  
+  if hasKmerShape:
+    try:
+      config.kmerShape = some(parseKmerShape($args["--kmer-shape"]))
+      config.kmerSize = config.kmerShape.get().kmerSize
+    except ValueError as e:
+      stderr.writeLine("Error parsing kmer shape: ", e.msg)
+      return 1
+  else:
+    config.kmerSize = parseInt($args["--kmer-size"])
 
   # Validate k-mer size
   if config.kmerSize < 1 or config.kmerSize > 31:
@@ -224,6 +254,20 @@ proc main(): int =
     stderr.writeLine("Error: Minimizer size must be smaller than k-mer size")
     return 1
 
+  if config.verbose:
+    # Print kmer size, minimiser size
+    for file in @(args["<FASTA_FILES>"]):
+      stderr.writeLine("Input file:       ", args["<FASTA_FILES>"])
+    if config.kmerShape.isSome:
+      let shape = config.kmerShape.get()
+      stderr.writeLine("K-mer shape:      ", shape.pattern)
+      stderr.writeLine("K-mer size:       ", shape.kmerSize)
+      stderr.writeLine("Window size:      ", shape.windowSize)
+    else:
+      stderr.writeLine("K-mer size:       ", config.kmerSize)
+      stderr.writeLine("Window size:      ", config.kmerSize)  # For traditional k-mers, window size = k-mer size
+    stderr.writeLine("Minimizer size:   ", config.minimizerSize)
+    stderr.writeLine("Output directory: ", config.outputDir)
   # Create output directory
   if not dirExists(config.outputDir):
     try:
@@ -271,7 +315,8 @@ proc main(): int =
       valueBits: 24,
       taxonomyMap: taxonomyMap,
       taxonomyLookup: taxonomyLookup,
-      lineageGraph: lineageGraph
+      lineageGraph: lineageGraph,
+      kmerShape: config.kmerShape
     )
 
     # Step 3: Build k-mer database

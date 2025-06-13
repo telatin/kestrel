@@ -2,7 +2,7 @@ import readfx
 import docopt, strutils
 import os, json, streams, tables
 import ./utils
-import sequtils, math, algorithm
+import sequtils, math, algorithm, options
 
 const NimblePkgVersion {.strdefine.} = "undef"
  
@@ -55,6 +55,13 @@ proc loadDatabase(dbDir: string, verbose: bool): Database =
   let minimizerSize = paramsJson["minimizer_size"].getInt()
   let valueBits = paramsJson["value_bits"].getInt().uint32
   
+  # Load kmer shape if present
+  var kmerShape: Option[KmerShape] = none(KmerShape)
+  if paramsJson.hasKey("kmer_shape"):
+    let shapeJson = paramsJson["kmer_shape"]
+    let pattern = shapeJson["pattern"].getStr()
+    kmerShape = some(parseKmerShape(pattern))
+  
   # Build taxonomy maps
   var taxonomyMap = initTable[string, TaxonomyId]()
   var taxonomyLookup = initTable[TaxonomyId, string]()
@@ -86,7 +93,8 @@ proc loadDatabase(dbDir: string, verbose: bool): Database =
     valueBits: valueBits,
     taxonomyMap: taxonomyMap,
     taxonomyLookup: taxonomyLookup,
-    lineageGraph: lineageGraph
+    lineageGraph: lineageGraph,
+    kmerShape: kmerShape
   )
   
   # Load k-mer table
@@ -144,8 +152,10 @@ proc classifySequence(sequence: string, database: Database, config: ClassifyConf
   ## Classify a single sequence
   let params = database.params
   
-  # Extract k-mers or minimizers
-  let kmers = if params.minimizerSize > 0:
+  # Extract k-mers, minimizers, or shaped k-mers
+  let kmers = if params.kmerShape.isSome:
+                extractKmersWithShape(sequence, params.kmerShape.get())
+              elif params.minimizerSize > 0:
                 extractMinimizers(sequence, params.kmerSize, params.minimizerSize)
               else:
                 extractKmers(sequence, params.kmerSize)

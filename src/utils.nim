@@ -1,4 +1,4 @@
-import tables, sequtils, strutils, deques, sets, hashes, algorithm
+import tables, sequtils, strutils, deques, sets, hashes, algorithm, options
 
 # Nucleotide encoding constants
 const
@@ -18,6 +18,12 @@ type
   TaxonomyLookup* = Table[TaxonomyId, string]
   TaxonomyGraph* = Table[TaxonomyId, TaxonomyId]  # child -> parent mapping
   
+  KmerShape* = object
+    pattern*: string
+    kmerSize*: int
+    windowSize*: int
+    includePositions*: seq[int]
+  
   DatabaseParams* = object
     kmerSize*: int
     minimizerSize*: int
@@ -25,6 +31,7 @@ type
     taxonomyMap*: TaxonomyMap
     taxonomyLookup*: TaxonomyLookup
     lineageGraph*: TaxonomyGraph
+    kmerShape*: Option[KmerShape]
 
 
 
@@ -89,6 +96,38 @@ proc isValidTaxonomy*(taxonomy: string): bool =
         return false
   
   return true
+
+# Parse kmer shape string (e.g., "OOOO--OOOO")
+proc parseKmerShape*(shapePattern: string): KmerShape =
+  var includePositions: seq[int] = @[]
+  var kmerSize = 0
+  let windowSize = shapePattern.len
+  
+  if windowSize == 0:
+    raise newException(ValueError, "Kmer shape pattern cannot be empty")
+  
+  for i, char in shapePattern:
+    case char:
+    of 'O', 'o':
+      includePositions.add(i)
+      kmerSize += 1
+    of '-':
+      continue
+    else:
+      raise newException(ValueError, "Invalid character in kmer shape: '" & $char & "'. Only 'O' and '-' are allowed")
+  
+  if kmerSize == 0:
+    raise newException(ValueError, "Kmer shape must contain at least one 'O'")
+  
+  if kmerSize > 31:
+    raise newException(ValueError, "Kmer size cannot exceed 31")
+  
+  result = KmerShape(
+    pattern: shapePattern,
+    kmerSize: kmerSize,
+    windowSize: windowSize,
+    includePositions: includePositions
+  )
 
 # Nucleotide encoding lookup table
 proc nucToNumber*(nuc: char): uint64 =
@@ -213,6 +252,34 @@ proc extractMinimizers*(sequence: string, kmerSize: int, minimizerSize: int): se
       if validPos >= kmerSize:
         if window.len > 0:
           result.add(window.peekFirst()[0] xor toggle)
+
+# Extract k-mers using a shape pattern (e.g., "OOOO--OOOO")
+proc extractKmersWithShape*(sequence: string, shape: KmerShape): seq[uint64] =
+  result = @[]
+  if sequence.len < shape.windowSize:
+    return
+  
+  let mask = (1'u64 shl (shape.kmerSize * 2)) - 1
+  
+  for i in 0..(sequence.len - shape.windowSize):
+    var currentKmer = 0'u64
+    var validNucs = 0
+    var invalidFound = false
+    
+    # Extract nucleotides at specified positions within the window
+    for pos in shape.includePositions:
+      let nuc = nucToNumber(sequence[i + pos])
+      
+      if nuc == NUC_INVALID:
+        invalidFound = true
+        break
+      
+      currentKmer = (currentKmer shl 2) or nuc
+      validNucs += 1
+    
+    # Only add k-mer if all positions had valid nucleotides
+    if not invalidFound and validNucs == shape.kmerSize:
+      result.add(canonical(currentKmer, shape.kmerSize))
 
 # Parse taxonomy string and return individual levels
 proc parseTaxonomyLevels*(taxonomy: string): seq[string] =

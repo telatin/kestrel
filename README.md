@@ -8,7 +8,8 @@ Klass reads taxonomy information directly from FASTA sequence headers and uses e
 ## Features
 
 - **Header-based taxonomy**: Reads GTDB-style taxonomy directly from FASTA headers
-- **Efficient k-mer processing**: Canonical k-mers with optional minimizer compression  
+- **Efficient k-mer processing**: Canonical k-mers with optional minimizer compression
+- **Spaced k-mers**: Supports shaped k-mers (e.g., OOOO--OOOO) for improved specificity
 - **LCA resolution**: Handles k-mer conflicts using Lowest Common Ancestor algorithms
 - **Quality filtering**: Phred score-based quality filtering for FASTQ reads
 - **Compressed formats**: Supports gzipped FASTA/FASTQ files via readfx
@@ -38,6 +39,7 @@ Build a k-mer database from reference genomes with taxonomy in headers:
 **Options:**
 - `-o, --output DB` - Output database directory (required)
 - `-k, --kmer-size INT` - K-mer size [default: 25]
+- `-s, --kmer-shape STRING` - K-mer shape pattern (e.g., OOOO--OOOO)
 - `-m, --minimizer-size INT` - Minimizer size (0 = no minimizers) [default: 0]
 - `--verbose` - Print verbose logging
 - `--debug` - Print debug information
@@ -46,6 +48,9 @@ Build a k-mer database from reference genomes with taxonomy in headers:
 ```bash
 # Build database with k-mer size 31
 ./bin/kestrel-build --verbose -o mydb -k 31 genome1.fasta genome2.fasta
+
+# Build with spaced k-mers (k=8, window=10)
+./bin/kestrel-build --verbose -o mydb -s "OOOO--OOOO" genome1.fasta genome2.fasta
 
 # Build with minimizers for smaller database
 ./bin/kestrel-build -o mydb -k 31 -m 15 *.fasta
@@ -115,8 +120,20 @@ no hits                                                       1250    0.000     
 ### K-mer Processing
 - Uses 2-bit nucleotide encoding (A=0, C=1, G=2, T=3)
 - Computes canonical k-mers (lexicographically smaller of forward/reverse complement)
+- Supports spaced k-mers with custom patterns (O = include base, - = skip base)
 - Optional minimizer compression using sliding window with deque optimization
 - Skips k-mers containing ambiguous bases (N, Y, R, etc.)
+
+### Spaced K-mers
+Kestrel supports spaced k-mers (also called shaped k-mers) which can improve classification specificity by focusing on conserved positions while skipping variable regions:
+
+- **Pattern format**: String of 'O' (include) and '-' (skip) characters
+- **Examples**:
+  - `OOOOOOOO` = traditional 8-mer (equivalent to `--kmer-size 8`)
+  - `OOOO--OOOO` = 8-mer with 2-base gap (window size = 10)
+  - `OOO-O-OOO` = 7-mer with single-base gaps (window size = 9)
+- **Benefits**: Can reduce false positives by ignoring hypervariable positions
+- **Usage**: Use `--kmer-shape` instead of `--kmer-size` (mutually exclusive)
 
 ### Taxonomy Resolution
 - Builds hierarchical taxonomy graph from GTDB lineages
