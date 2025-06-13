@@ -1,4 +1,4 @@
-import tables, sequtils, strutils, deques, sets, hashes
+import tables, sequtils, strutils, deques, sets, hashes, algorithm
 
 # Nucleotide encoding constants
 const
@@ -282,6 +282,33 @@ proc findLCA*(taxon1: TaxonomyId, taxon2: TaxonomyId, graph: TaxonomyGraph): Tax
   
   # Return root if no common ancestor found
   return 0'u32
+
+# Reconstruct full taxonomy lineage from taxonomy ID
+proc getFullLineage*(taxonomyId: TaxonomyId, taxonomyLookup: TaxonomyLookup, lineageGraph: TaxonomyGraph): string =
+  if taxonomyId == 0:
+    return "root"
+  
+  var lineage: seq[string] = @[]
+  var current = taxonomyId
+  
+  # Trace back to root, collecting all levels
+  while current != 0 and taxonomyLookup.hasKey(current):
+    let taxonName = taxonomyLookup[current]
+    if taxonName != "root":
+      lineage.add(taxonName)
+    
+    if lineageGraph.hasKey(current):
+      current = lineageGraph[current]
+    else:
+      break
+  
+  # Reverse to get proper order (domain -> species)
+  algorithm.reverse(lineage)
+  
+  if lineage.len == 0:
+    return "unclassified"
+  else:
+    return lineage.join(";")
 
 # Hash table operations for sepia mode
 proc populateSepia*(key: uint64, value: TaxonomyId, valueBits: uint32): uint32 =
