@@ -80,14 +80,15 @@ proc buildKmerDatabase(fastaFiles: seq[string], config: BuildDbConfig, dbParams:
       processedSequences += 1
       
       # Progress update only when percentage increases by at least 1% or every 10 seconds
-      let currentTime = cpuTime()
-      let progress = (processedSequences * 100) div sequenceCount
-      
-      if config.verbose and ((progress >= lastProgressPercent + 1) or (currentTime - lastProgressTime) > 10.0):
-        stderr.writeLine("  ", progress, "% - ", formatWithCommas(result.len), " unique k-mers so far (", 
-                        formatWithCommas(processedSequences), "/", formatWithCommas(sequenceCount), ")")
-        lastProgressTime = currentTime
-        lastProgressPercent = progress
+      if config.verbose:
+        let currentTime = cpuTime()
+        let progress = if sequenceCount > 0: (processedSequences * 100) div sequenceCount else: 0
+        
+        if (progress >= lastProgressPercent + 10) or (currentTime - lastProgressTime) > 25.0:
+          stderr.writeLine("  ", progress, "% - ", formatWithCommas(result.len), " unique k-mers so far (", 
+                          formatWithCommas(processedSequences), "/", formatWithCommas(sequenceCount), ")")
+          lastProgressTime = currentTime
+          lastProgressPercent = progress
       
       if not dbParams.taxonomyMap.hasKey(taxonomy):
         if config.debug:
